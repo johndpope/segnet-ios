@@ -1,11 +1,18 @@
 #include <fcntl.h>
 #include <google/protobuf/io/coded_stream.h>
+#ifdef USE_PROTOBUF_FULL
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
+#else
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
+#include <errno.h>
+#endif
+#ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/highgui/highgui_c.h>
 #include <opencv2/imgproc/imgproc.hpp>
+#endif  // USE_OPENCV
 #include <stdint.h>
 
 #include <algorithm>
@@ -16,19 +23,31 @@
 #include "caffe/common.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/util/io.hpp"
+#ifndef NO_CAFFE_MOBILE
+#include <unistd.h>
+#endif
 
 const int kProtoReadBytesLimit = INT_MAX;  // Max size of 2 GB minus 1 byte.
 
 namespace caffe {
 
+#ifdef USE_PROTOBUF_FULL
 using google::protobuf::io::FileInputStream;
 using google::protobuf::io::FileOutputStream;
+#else
+using google::protobuf::io::CopyingInputStream;
+using google::protobuf::io::CopyingInputStreamAdaptor;
+typedef google::protobuf::MessageLite Message;
+#endif
 using google::protobuf::io::ZeroCopyInputStream;
 using google::protobuf::io::CodedInputStream;
 using google::protobuf::io::ZeroCopyOutputStream;
 using google::protobuf::io::CodedOutputStream;
+#ifdef USE_PROTOBUF_FULL
 using google::protobuf::Message;
+#endif
 
+#ifdef USE_PROTOBUF_FULL
 bool ReadProtoFromTextFile(const char* filename, Message* proto) {
   int fd = open(filename, O_RDONLY);
   CHECK_NE(fd, -1) << "File not found: " << filename;
@@ -46,11 +65,31 @@ void WriteProtoToTextFile(const Message& proto, const char* filename) {
   delete output;
   close(fd);
 }
+#endif
 
 bool ReadProtoFromBinaryFile(const char* filename, Message* proto) {
   int fd = open(filename, O_RDONLY);
   CHECK_NE(fd, -1) << "File not found: " << filename;
+#ifdef USE_PROTOBUF_FULL
   ZeroCopyInputStream* raw_input = new FileInputStream(fd);
+#else
+  class CopyingFileInputStream: public CopyingInputStream {
+  public:
+    CopyingFileInputStream(int file_descriptor): file_(file_descriptor) {
+    }
+    int Read(void *buffer, int size) {
+      int result;
+      do {
+        result = read(file_, buffer, size);
+      } while (result < 0 && errno == EINTR);
+      return result;
+    }
+  private:
+      const int file_;
+  };
+  CopyingFileInputStream *cfis = new CopyingFileInputStream(fd);
+  ZeroCopyInputStream* raw_input = new CopyingInputStreamAdaptor(cfis);
+#endif
   CodedInputStream* coded_input = new CodedInputStream(raw_input);
   coded_input->SetTotalBytesLimit(kProtoReadBytesLimit, 536870912);
 
@@ -62,11 +101,14 @@ bool ReadProtoFromBinaryFile(const char* filename, Message* proto) {
   return success;
 }
 
+#ifdef NO_CAFFE_MOBILE
 void WriteProtoToBinaryFile(const Message& proto, const char* filename) {
   fstream output(filename, ios::out | ios::trunc | ios::binary);
   CHECK(proto.SerializeToOstream(&output));
 }
+#endif
 
+#ifdef USE_OPENCV
 cv::Mat ReadImageToCVMat(const string& filename,
     const int height, const int width, const bool is_color,
     const bool nearest_neighbour_interp) {
@@ -107,6 +149,7 @@ cv::Mat ReadImageToCVMat(const string& filename,
 cv::Mat ReadImageToCVMat(const string& filename) {
   return ReadImageToCVMat(filename, 0, 0, true);
 }
+
 // Do the file extension and encoding match?
 static bool matchExt(const std::string & fn,
                      std::string en) {
@@ -120,6 +163,7 @@ static bool matchExt(const std::string & fn,
     return true;
   return false;
 }
+
 bool ReadImageToDatum(const string& filename, const int label,
     const int height, const int width, const bool is_color,
     const std::string & encoding, Datum* datum) {
@@ -144,6 +188,7 @@ bool ReadImageToDatum(const string& filename, const int label,
     return false;
   }
 }
+#endif  // USE_OPENCV
 
 bool ReadFileToDatum(const string& filename, const int label,
     Datum* datum) {
@@ -165,6 +210,7 @@ bool ReadFileToDatum(const string& filename, const int label,
   }
 }
 
+#ifdef USE_OPENCV
 cv::Mat DecodeDatumToCVMatNative(const Datum& datum) {
   cv::Mat cv_img;
   CHECK(datum.encoded()) << "Datum not encoded";
@@ -236,80 +282,5 @@ void CVMatToDatum(const cv::Mat& cv_img, Datum* datum) {
   }
   datum->set_data(buffer);
 }
-
-// Verifies format of data stored in HDF5 file and reshapes blob accordingly.
-template <typename Dtype>
-void hdf5_load_nd_dataset_helper(
-    hid_t file_id, const char* dataset_name_, int min_dim, int max_dim,
-    Blob<Dtype>* blob) {
-  // Verify that the dataset exists.
-  CHECK(H5LTfind_dataset(file_id, dataset_name_))
-      << "Failed to find HDF5 dataset " << dataset_name_;
-  // Verify that the number of dimensions is in the accepted range.
-  herr_t status;
-  int ndims;
-  status = H5LTget_dataset_ndims(file_id, dataset_name_, &ndims);
-  CHECK_GE(status, 0) << "Failed to get dataset ndims for " << dataset_name_;
-  CHECK_GE(ndims, min_dim);
-  CHECK_LE(ndims, max_dim);
-
-  // Verify that the data format is what we expect: float or double.
-  std::vector<hsize_t> dims(ndims);
-  H5T_class_t class_;
-  status = H5LTget_dataset_info(
-      file_id, dataset_name_, dims.data(), &class_, NULL);
-  CHECK_GE(status, 0) << "Failed to get dataset info for " << dataset_name_;
-  CHECK_EQ(class_, H5T_FLOAT) << "Expected float or double data";
-
-  vector<int> blob_dims(dims.size());
-  for (int i = 0; i < dims.size(); ++i) {
-    blob_dims[i] = dims[i];
-  }
-  blob->Reshape(blob_dims);
-}
-
-template <>
-void hdf5_load_nd_dataset<float>(hid_t file_id, const char* dataset_name_,
-        int min_dim, int max_dim, Blob<float>* blob) {
-  hdf5_load_nd_dataset_helper(file_id, dataset_name_, min_dim, max_dim, blob);
-  herr_t status = H5LTread_dataset_float(
-    file_id, dataset_name_, blob->mutable_cpu_data());
-  CHECK_GE(status, 0) << "Failed to read float dataset " << dataset_name_;
-}
-
-template <>
-void hdf5_load_nd_dataset<double>(hid_t file_id, const char* dataset_name_,
-        int min_dim, int max_dim, Blob<double>* blob) {
-  hdf5_load_nd_dataset_helper(file_id, dataset_name_, min_dim, max_dim, blob);
-  herr_t status = H5LTread_dataset_double(
-    file_id, dataset_name_, blob->mutable_cpu_data());
-  CHECK_GE(status, 0) << "Failed to read double dataset " << dataset_name_;
-}
-
-template <>
-void hdf5_save_nd_dataset<float>(
-    const hid_t file_id, const string& dataset_name, const Blob<float>& blob) {
-  hsize_t dims[HDF5_NUM_DIMS];
-  dims[0] = blob.num();
-  dims[1] = blob.channels();
-  dims[2] = blob.height();
-  dims[3] = blob.width();
-  herr_t status = H5LTmake_dataset_float(
-      file_id, dataset_name.c_str(), HDF5_NUM_DIMS, dims, blob.cpu_data());
-  CHECK_GE(status, 0) << "Failed to make float dataset " << dataset_name;
-}
-
-template <>
-void hdf5_save_nd_dataset<double>(
-    const hid_t file_id, const string& dataset_name, const Blob<double>& blob) {
-  hsize_t dims[HDF5_NUM_DIMS];
-  dims[0] = blob.num();
-  dims[1] = blob.channels();
-  dims[2] = blob.height();
-  dims[3] = blob.width();
-  herr_t status = H5LTmake_dataset_double(
-      file_id, dataset_name.c_str(), HDF5_NUM_DIMS, dims, blob.cpu_data());
-  CHECK_GE(status, 0) << "Failed to make double dataset " << dataset_name;
-}
-
+#endif  // USE_OPENCV
 }  // namespace caffe

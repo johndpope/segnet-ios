@@ -1,9 +1,15 @@
+#ifdef USE_GLOG
 #include <glog/logging.h>
+#endif
 #include <cstdio>
 #include <ctime>
 
 #include "caffe/common.hpp"
 #include "caffe/util/rng.hpp"
+
+#ifndef NO_CAFFE_MOBILE
+#include <unistd.h>
+#endif
 
 namespace caffe {
 
@@ -31,12 +37,16 @@ int64_t cluster_seedgen(void) {
 
 
 void GlobalInit(int* pargc, char*** pargv) {
+#ifdef NO_CAFFE_MOBILE
   // Google flags.
   ::gflags::ParseCommandLineFlags(pargc, pargv, true);
+#endif
+#ifdef USE_GLOG
   // Google logging.
   ::google::InitGoogleLogging(*(pargv)[0]);
   // Provide a backtrace on segfault.
   ::google::InstallFailureSignalHandler();
+#endif
 }
 
 #ifdef CPU_ONLY  // CPU-only Caffe.

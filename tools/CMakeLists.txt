@@ -1,6 +1,12 @@
 # Collect source files
 file(GLOB_RECURSE srcs ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
+include(../cmake/Modules/FindGFlags.cmake)
+if(GFLAGS_FOUND)
+    include_directories(${GFLAGS_INCLUDE_DIRS})
+    list(APPEND Caffe_LINK ${GFLAGS_LIBRARIES})
+endif()
+
 # Build each source file independently
 foreach(source ${srcs})
   get_filename_component(name ${source} NAME_WE)

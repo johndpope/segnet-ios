@@ -14,8 +14,6 @@
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
-#include "caffe/test/test_caffe_main.hpp"
-
 namespace caffe {
 
 template <typename Dtype>
@@ -26,7 +24,11 @@ Net<Dtype>::Net(const NetParameter& param) {
 template <typename Dtype>
 Net<Dtype>::Net(const string& param_file, Phase phase) {
   NetParameter param;
+#ifdef USE_PROTOBUF_FULL
   ReadNetParamsFromTextFileOrDie(param_file, &param);
+#else
+  ReadNetParamsFromBinaryFileOrDie(param_file, &param);
+#endif
   param.mutable_state()->set_phase(phase);
   Init(param);
 }
@@ -40,7 +42,11 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   NetParameter filtered_param;
   FilterNet(in_param, &filtered_param);
   LOG(INFO) << "Initializing net from parameters: " << std::endl
-            << filtered_param.DebugString();
+#ifdef USE_PROTOBUF_FULL
+      << filtered_param.DebugString();
+#else
+      ;
+#endif
   // Create a copy of filtered_param with splits added where necessary.
   NetParameter param;
   InsertSplits(filtered_param, &param);

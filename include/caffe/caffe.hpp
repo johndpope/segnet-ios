@@ -11,7 +11,9 @@
 #include "caffe/layer_factory.hpp"
 #include "caffe/net.hpp"
 #include "caffe/proto/caffe.pb.h"
+#ifdef NO_CAFFE_MOBILE
 #include "caffe/solver.hpp"
+#endif
 #include "caffe/util/benchmark.hpp"
 #include "caffe/util/io.hpp"
 #include "caffe/vision_layers.hpp"

@@ -1,69 +1,47 @@
 cmake_minimum_required(VERSION 2.8.7)
-
-# ---[ Caffe project
-project(Caffe C CXX)
-
-# ---[ Using cmake scripts and modules
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
-
-include(ExternalProject)
-
-include(cmake/Utils.cmake)
-include(cmake/Targets.cmake)
-include(cmake/Misc.cmake)
-include(cmake/Summary.cmake)
-include(cmake/ConfigGen.cmake)
-
-# ---[ Options
-caffe_option(CPU_ONLY  "Build Caffe wihtout CUDA support" OFF) # TODO: rename to USE_CUDA
-caffe_option(USE_CUDNN "Build Caffe with cuDNN libary support" ON IF NOT CPU_ONLY)
-caffe_option(BUILD_SHARED_LIBS "Build shared libraries" ON)
-caffe_option(BUILD_python "Build Python wrapper" ON)
-set(python_version "2" CACHE STRING "Specify which python version to use")
-caffe_option(BUILD_matlab "Build Matlab wrapper" OFF IF UNIX OR APPLE)
-caffe_option(BUILD_docs   "Build documentation" ON IF UNIX OR APPLE)
-caffe_option(BUILD_python_layer "Build the caffe python layer" ON)
-
-# ---[ Dependencies
-include(cmake/Dependencies.cmake)
-
-# ---[ Flags
-if(UNIX OR APPLE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall")
+if(POLICY CMP0046)
+    cmake_policy(SET CMP0046 NEW)
+endif()
+if(POLICY CMP0054)
+    cmake_policy(SET CMP0054 NEW)
 endif()
 
-if(USE_libstdcpp)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libstdc++")
-  message("-- Warning: forcing libstdc++ (controlled by USE_libstdcpp option in cmake)")
+set(CAFFE_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CAFFE_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_definitions(-DCPU_ONLY)
+add_definitions(-DUSE_NEON_MATH)
+
+include(./cmake/Utils.cmake)
+include(./cmake/Misc.cmake)
+include(./cmake/Targets.cmake)
+
+if(NOT MSVC)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-sign-compare")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wno-sign-compare")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++0x")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++0x")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fembed-bitcode")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fembed-bitcode")
 endif()
 
-add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
+list(INSERT CMAKE_FIND_ROOT_PATH 0 ${CMAKE_SOURCE_DIR}/third_party/ios-protobuf)
 
-# ---[ Warnings
-caffe_warnings_disable(CMAKE_CXX_FLAGS -Wno-sign-compare -Wno-uninitialized)
+include(./cmake/ProtoBuf.cmake)
+include(./cmake/Modules/FindvecLib.cmake)
 
-# ---[ Config generation
-configure_file(cmake/Templates/caffe_config.h.in "${PROJECT_BINARY_DIR}/caffe_config.h")
+if(VECLIB_FOUND)
+    include_directories(${vecLib_INCLUDE_DIR})
+    list(APPEND Caffe_LINKER_LIBS ${vecLib_LINKER_LIBS})
+else()
+    MESSAGE(FATAL_ERROR "BLAS (VecLib/OpenBLAS/Atlas) library not found.")
+endif()
 
-# ---[ Includes
-set(Caffe_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
-include_directories(${Caffe_INCLUDE_DIR} ${PROJECT_BINARY_DIR})
-include_directories(BEFORE src) # This is needed for gtest.
+caffe_set_caffe_link()
 
-# ---[ Subdirectories
-add_subdirectory(src/gtest)
 add_subdirectory(src/caffe)
-add_subdirectory(tools)
-add_subdirectory(examples)
-add_subdirectory(python)
-add_subdirectory(matlab)
-add_subdirectory(docs)
 
-# ---[ Linter target
-add_custom_target(lint COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/lint.cmake)
-
-# ---[ Configuration summary
-caffe_print_configuration_summary()
-
-# ---[ Export configs generation
-caffe_generate_export_configs()
+if(TOOLS)
+    add_subdirectory(tools)
+endif()

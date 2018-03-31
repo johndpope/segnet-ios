@@ -9,28 +9,11 @@ caffe_default_properties(proto)
 
 # --[ Caffe library
 
-# creates 'test_srcs', 'srcs', 'test_cuda', 'cuda' lists
-caffe_pickup_caffe_sources(${PROJECT_SOURCE_DIR})
 
-if(HAVE_CUDA)
-  caffe_cuda_compile(cuda_objs ${cuda})
-  list(APPEND srcs ${cuda_objs} ${cuda})
-endif()
+file(GLOB_RECURSE srcs ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
-add_library(caffe ${srcs})
+add_library(caffe STATIC ${srcs})
 target_link_libraries(caffe proto ${Caffe_LINKER_LIBS})
 caffe_default_properties(caffe)
 
-# ---[ Tests
- add_subdirectory(test)
-
-# ---[ Install
-install(DIRECTORY ${Caffe_INCLUDE_DIR}/caffe DESTINATION include)
-install(FILES ${proto_hdrs} DESTINATION include/caffe/proto)
-install(TARGETS caffe proto EXPORT CaffeTargets DESTINATION lib)
-
-file(WRITE ${PROJECT_BINARY_DIR}/__init__.py)
-list(APPEND proto_python ${PROJECT_BINARY_DIR}/__init__.py)
-install(PROGRAMS ${proto_python} DESTINATION python/caffe/proto)
-
-
+#INSTALL(TARGETS caffe DESTINATION lib)

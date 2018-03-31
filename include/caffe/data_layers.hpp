@@ -5,9 +5,6 @@
 #include <utility>
 #include <vector>
 
-#include "boost/scoped_ptr.hpp"
-#include "hdf5.h"
-
 #include "caffe/blob.hpp"
 #include "caffe/common.hpp"
 #include "caffe/data_transformer.hpp"
@@ -15,7 +12,6 @@
 #include "caffe/internal_thread.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
-#include "caffe/util/db.hpp"
 
 namespace caffe {
 
@@ -94,32 +90,6 @@ class DataLayer : public BasePrefetchingDataLayer<Dtype> {
 
  protected:
   virtual void InternalThreadEntry();
-
-  shared_ptr<db::DB> db_;
-  shared_ptr<db::Cursor> cursor_;
-};
-
-template <typename Dtype>
-class DenseImageDataLayer : public BasePrefetchingDataLayer<Dtype> {
- public:
-  explicit DenseImageDataLayer(const LayerParameter& param)
-      : BasePrefetchingDataLayer<Dtype>(param) {}
-  virtual ~DenseImageDataLayer();
-  virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-
-  virtual inline const char* type() const { return "DenseImageData"; }
-  virtual inline int ExactNumBottomBlobs() const { return 0; }
-  virtual inline int ExactNumTopBlobs() const { return 2; }
-
- protected:
-  shared_ptr<Caffe::RNG> prefetch_rng_;
-  virtual void ShuffleImages();
-  virtual void InternalThreadEntry();
-
-  vector<std::pair<std::string, std::string> > lines_;
-  int lines_id_;
-  Blob<Dtype> transformed_label_;
 };
 
 /**
@@ -152,89 +122,6 @@ class DummyDataLayer : public Layer<Dtype> {
 
   vector<shared_ptr<Filler<Dtype> > > fillers_;
   vector<bool> refill_;
-};
-
-/**
- * @brief Provides data to the Net from HDF5 files.
- *
- * TODO(dox): thorough documentation for Forward and proto params.
- */
-template <typename Dtype>
-class HDF5DataLayer : public Layer<Dtype> {
- public:
-  explicit HDF5DataLayer(const LayerParameter& param)
-      : Layer<Dtype>(param) {}
-  virtual ~HDF5DataLayer();
-  virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  // Data layers have no bottoms, so reshaping is trivial.
-  virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top) {}
-
-  virtual inline const char* type() const { return "HDF5Data"; }
-  virtual inline int ExactNumBottomBlobs() const { return 0; }
-  virtual inline int MinTopBlobs() const { return 1; }
-
- protected:
-  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
-      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {}
-  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
-      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {}
-  virtual void LoadHDF5FileData(const char* filename);
-
-  std::vector<std::string> hdf_filenames_;
-  unsigned int num_files_;
-  unsigned int current_file_;
-  hsize_t current_row_;
-  std::vector<shared_ptr<Blob<Dtype> > > hdf_blobs_;
-  std::vector<unsigned int> data_permutation_;
-  std::vector<unsigned int> file_permutation_;
-};
-
-/**
- * @brief Write blobs to disk as HDF5 files.
- *
- * TODO(dox): thorough documentation for Forward and proto params.
- */
-template <typename Dtype>
-class HDF5OutputLayer : public Layer<Dtype> {
- public:
-  explicit HDF5OutputLayer(const LayerParameter& param)
-      : Layer<Dtype>(param), file_opened_(false) {}
-  virtual ~HDF5OutputLayer();
-  virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  // Data layers have no bottoms, so reshaping is trivial.
-  virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top) {}
-
-  virtual inline const char* type() const { return "HDF5Output"; }
-  // TODO: no limit on the number of blobs
-  virtual inline int ExactNumBottomBlobs() const { return 2; }
-  virtual inline int ExactNumTopBlobs() const { return 0; }
-
-  inline std::string file_name() const { return file_name_; }
-
- protected:
-  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
-      const vector<Blob<Dtype>*>& top);
-  virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
-      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
-  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
-      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
-  virtual void SaveBlobs();
-
-  bool file_opened_;
-  std::string file_name_;
-  hid_t file_id_;
-  Blob<Dtype> data_blob_;
-  Blob<Dtype> label_blob_;
 };
 
 /**
@@ -282,8 +169,10 @@ class MemoryDataLayer : public BaseDataLayer<Dtype> {
   virtual inline int ExactNumTopBlobs() const { return 2; }
 
   virtual void AddDatumVector(const vector<Datum>& datum_vector);
+#ifdef USE_OPENCV
   virtual void AddMatVector(const vector<cv::Mat>& mat_vector,
       const vector<int>& labels);
+#endif
 
   // Reset should accept const pointers, but can't, because the memory
   //  will be given to Blob, which is mutable

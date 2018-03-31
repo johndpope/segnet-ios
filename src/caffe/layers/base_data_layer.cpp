@@ -27,6 +27,7 @@ void BaseDataLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   DataLayerSetUp(bottom, top);
 }
 
+#ifdef NO_CAFFE_MOBILE
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
@@ -82,8 +83,11 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
 #ifdef CPU_ONLY
 STUB_GPU_FORWARD(BasePrefetchingDataLayer, Forward);
 #endif
+#endif // NO_CAFFE_MOBILE
 
 INSTANTIATE_CLASS(BaseDataLayer);
+#ifdef NO_CAFFE_MOBILE
 INSTANTIATE_CLASS(BasePrefetchingDataLayer);
+#endif // NO_CAFFE_MOBILE
 
 }  // namespace caffe

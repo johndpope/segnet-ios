@@ -1,11 +1,21 @@
+#ifdef USE_BOOST
 #include <boost/math/special_functions/next.hpp>
 #include <boost/random.hpp>
+#else
+#include <math.h>
+#endif // USE_BOOST
 
 #include <limits>
 
 #include "caffe/common.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/rng.hpp"
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <vecLib.h>
+#elif defined(USE_NEON_MATH) && defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 namespace caffe {
 
@@ -64,22 +74,68 @@ void caffe_set(const int N, const Dtype alpha, Dtype* Y) {
   }
 }
 
+#ifdef __VECLIB__
+template <>
+void caffe_set(const int N, const float alpha, float* Y) {
+  vDSP_vfill(&alpha, Y, 1, N);
+}
+
+template <>
+void caffe_set(const int N, const double alpha, double* Y) {
+  vDSP_vfillD(&alpha, Y, 1, N);
+}
+#elif defined(__ARM_NEON_H)
+template <>
+void caffe_set(const int N, const float alpha, float* Y) {
+  int tail_frames = N % 4;
+  const float* end = Y + N - tail_frames;
+  while (Y < end) {
+    float32x4_t alpha_dup = vld1q_dup_f32(&alpha);
+    vst1q_f32(Y, alpha_dup);
+    Y += 4;
+  }
+  for (int i = 0; i < tail_frames; ++i) {
+    Y[i] = alpha;
+  }
+}
+#endif
+
 template void caffe_set<int>(const int N, const int alpha, int* Y);
 template void caffe_set<float>(const int N, const float alpha, float* Y);
 template void caffe_set<double>(const int N, const double alpha, double* Y);
 
 template <>
 void caffe_add_scalar(const int N, const float alpha, float* Y) {
+#ifdef __VECLIB__
+  vDSP_vsadd(Y, 1, &alpha, Y, 1, N);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = N % 4;
+  const float* end = Y + N - tail_frames;
+  while (Y < end) {
+    float32x4_t a_frame = vld1q_f32(Y);
+    float32x4_t alpha_dup = vld1q_dup_f32(&alpha);
+    vst1q_f32(Y, vaddq_f32(a_frame, alpha_dup));
+    Y += 4;
+  }
+  for (int i = 0; i < tail_frames; ++i) {
+    Y[i] += alpha;
+  }
+#else
   for (int i = 0; i < N; ++i) {
     Y[i] += alpha;
   }
+#endif
 }
 
 template <>
 void caffe_add_scalar(const int N, const double alpha, double* Y) {
+#ifdef __VECLIB__
+  vDSP_vsaddD(Y, 1, &alpha, Y, 1, N);
+#else
   for (int i = 0; i < N; ++i) {
     Y[i] += alpha;
   }
+#endif
 }
 
 template <typename Dtype>
@@ -101,7 +157,25 @@ void caffe_copy(const int N, const Dtype* X, Dtype* Y) {
 template void caffe_copy<int>(const int N, const int* X, int* Y);
 template void caffe_copy<unsigned int>(const int N, const unsigned int* X,
     unsigned int* Y);
+#if defined(__ARM_NEON_H)
+template <>
+void caffe_copy<float>(const int N, const float* X, float* Y) {
+  int tail_frames = N % 4;
+  const float* end = Y + N - tail_frames;
+  while (Y < end) {
+    float32x4_t x_frame = vld1q_f32(X);
+    vst1q_f32(Y, x_frame);
+    X += 4;
+    Y += 4;
+  }
+  for (int i = 0; i < tail_frames; ++i) {
+    Y[i] = X[i];
+  }
+}
+#else
 template void caffe_copy<float>(const int N, const float* X, float* Y);
+#endif
+
 template void caffe_copy<double>(const int N, const double* X, double* Y);
 
 template <>
@@ -129,49 +203,129 @@ void caffe_cpu_axpby<double>(const int N, const double alpha, const double* X,
 template <>
 void caffe_add<float>(const int n, const float* a, const float* b,
     float* y) {
+#ifdef __VECLIB__
+  vDSP_vadd(a, 1, b, 1, y, 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    float32x4_t b_frame = vld1q_f32(b);
+    vst1q_f32(y, vaddq_f32(a_frame, b_frame));
+    a += 4;
+    b += 4;
+    y += 4;
+  }
+  vsAdd(tail_frames, a, b, y);
+#else
   vsAdd(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_add<double>(const int n, const double* a, const double* b,
     double* y) {
+#ifdef __VECLIB__
+  vDSP_vaddD(a, 1, b, 1, y, 1, n);
+#else
   vdAdd(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_sub<float>(const int n, const float* a, const float* b,
     float* y) {
+#ifdef __VECLIB__
+  vDSP_vsub(a, 1, b, 1, y, 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    float32x4_t b_frame = vld1q_f32(b);
+    vst1q_f32(y, vsubq_f32(a_frame, b_frame));
+    a += 4;
+    b += 4;
+    y += 4;
+  }
+  vsSub(tail_frames, a, b, y);
+#else
   vsSub(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_sub<double>(const int n, const double* a, const double* b,
     double* y) {
+#ifdef __VECLIB__
+  vDSP_vsubD(a, 1, b, 1, y, 1, n);
+#else
   vdSub(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_mul<float>(const int n, const float* a, const float* b,
     float* y) {
+#ifdef __VECLIB__
+  vDSP_vmul(a, 1, b, 1, y, 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    float32x4_t b_frame = vld1q_f32(b);
+    vst1q_f32(y, vmulq_f32(a_frame, b_frame));
+    a += 4;
+    b += 4;
+    y += 4;
+  }
+  vsMul(tail_frames, a, b, y);
+#else
   vsMul(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_mul<double>(const int n, const double* a, const double* b,
     double* y) {
+#ifdef __VECLIB__
+  vDSP_vmulD(a, 1, b, 1, y, 1, n);
+#else
   vdMul(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_div<float>(const int n, const float* a, const float* b,
     float* y) {
+#ifdef __VECLIB__
+  vDSP_vdiv(b, 1, a, 1, y, 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    float32x4_t b_frame = vld1q_f32(b);
+    vst1q_f32(y, vdivq_f32(a_frame, b_frame));
+    a += 4;
+    b += 4;
+    y += 4;
+  }
+  vsDiv(tail_frames, a, b, y);
+#else
   vsDiv(n, a, b, y);
+#endif
 }
 
 template <>
 void caffe_div<double>(const int n, const double* a, const double* b,
     double* y) {
+#ifdef __VECLIB__
+  vDSP_vdivD(b, 1, a, 1, y, 1, n);
+#else
   vdDiv(n, a, b, y);
+#endif
 }
 
 template <>
@@ -188,48 +342,101 @@ void caffe_powx<double>(const int n, const double* a, const double b,
 
 template <>
 void caffe_sqr<float>(const int n, const float* a, float* y) {
+#ifdef __VECLIB__
+  vDSP_vsq(a, 1, y, 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    vst1q_f32(y, vmulq_f32(a_frame, a_frame));
+    a += 4;
+    y += 4;
+  }
+  vsSqr(tail_frames, a, y);
+#else
   vsSqr(n, a, y);
+#endif
 }
 
 template <>
 void caffe_sqr<double>(const int n, const double* a, double* y) {
+#ifdef __VECLIB__
+  vDSP_vsqD(a, 1, y, 1, n);
+#else
   vdSqr(n, a, y);
+#endif
 }
 
 template <>
 void caffe_exp<float>(const int n, const float* a, float* y) {
+#ifdef __VECLIB__
+  vvexpf(y, a, &n);
+#else
   vsExp(n, a, y);
+#endif
 }
 
 template <>
 void caffe_exp<double>(const int n, const double* a, double* y) {
+#ifdef __VECLIB__
+  vvexp(y, a, &n);
+#else
   vdExp(n, a, y);
+#endif
 }
 
 template <>
 void caffe_log<float>(const int n, const float* a, float* y) {
+#ifdef __VECLIB__
+  vvlogf(y, a, &n);
+#else
   vsLn(n, a, y);
+#endif
 }
 
 template <>
 void caffe_log<double>(const int n, const double* a, double* y) {
+#ifdef __VECLIB__
+  vvlog(y, a, &n);
+#else
   vdLn(n, a, y);
+#endif
 }
 
 template <>
 void caffe_abs<float>(const int n, const float* a, float* y) {
-    vsAbs(n, a, y);
+#ifdef __VECLIB__
+  vDSP_vabs(a, 1, y , 1, n);
+#elif defined(__ARM_NEON_H)
+  int tail_frames = n % 4;
+  const float* end = y + n - tail_frames;
+  while (y < end) {
+    float32x4_t a_frame = vld1q_f32(a);
+    vst1q_f32(y, vabsq_f32(a_frame));
+    a += 4;
+    y += 4;
+  }
+  vsAbs(tail_frames, a, y);
+#else
+  vsAbs(n, a, y);
+#endif
 }
 
 template <>
 void caffe_abs<double>(const int n, const double* a, double* y) {
-    vdAbs(n, a, y);
+#ifdef __VECLIB__
+  vDSP_vabsD(a, 1, y , 1, n);
+#else
+  vdAbs(n, a, y);
+#endif
 }
 
 unsigned int caffe_rng_rand() {
   return (*caffe_rng())();
 }
 
+#ifdef USE_BOOST
 template <typename Dtype>
 Dtype caffe_nextafter(const Dtype b) {
   return boost::math::nextafter<Dtype>(
@@ -241,18 +448,35 @@ float caffe_nextafter(const float b);
 
 template
 double caffe_nextafter(const double b);
+#else
+// std::nextafter has some problems with tr1 & _GLIBCXX_USE_C99_MATH_TR1
+// when using android ndk
+float caffe_nextafter(const float b) {
+    return ::nextafterf(b, std::numeric_limits<float>::max());
+}
+double caffe_nextafter(const double b) {
+    return ::nextafter(b, std::numeric_limits<float>::max());
+}
+#endif
 
 template <typename Dtype>
 void caffe_rng_uniform(const int n, const Dtype a, const Dtype b, Dtype* r) {
   CHECK_GE(n, 0);
   CHECK(r);
   CHECK_LE(a, b);
+#ifdef USE_BOOST
   boost::uniform_real<Dtype> random_distribution(a, caffe_nextafter<Dtype>(b));
   boost::variate_generator<caffe::rng_t*, boost::uniform_real<Dtype> >
       variate_generator(caffe_rng(), random_distribution);
   for (int i = 0; i < n; ++i) {
     r[i] = variate_generator();
   }
+#else
+  std::uniform_real_distribution<Dtype> random_distribution(a, caffe_nextafter(b));
+  for (int i = 0; i < n; ++i) {
+    r[i] = random_distribution(*caffe_rng());
+  }
+#endif
 }
 
 template
@@ -269,12 +493,19 @@ void caffe_rng_gaussian(const int n, const Dtype a,
   CHECK_GE(n, 0);
   CHECK(r);
   CHECK_GT(sigma, 0);
+#ifdef USE_BOOST
   boost::normal_distribution<Dtype> random_distribution(a, sigma);
   boost::variate_generator<caffe::rng_t*, boost::normal_distribution<Dtype> >
       variate_generator(caffe_rng(), random_distribution);
   for (int i = 0; i < n; ++i) {
     r[i] = variate_generator();
   }
+#else
+  std::normal_distribution<Dtype> random_distribution(a, sigma);
+  for (int i = 0; i < n; ++i) {
+    r[i] = random_distribution(*caffe_rng());
+  }
+#endif
 }
 
 template
@@ -291,12 +522,19 @@ void caffe_rng_bernoulli(const int n, const Dtype p, int* r) {
   CHECK(r);
   CHECK_GE(p, 0);
   CHECK_LE(p, 1);
+#ifdef USE_BOOST
   boost::bernoulli_distribution<Dtype> random_distribution(p);
   boost::variate_generator<caffe::rng_t*, boost::bernoulli_distribution<Dtype> >
       variate_generator(caffe_rng(), random_distribution);
   for (int i = 0; i < n; ++i) {
     r[i] = variate_generator();
   }
+#else
+  std::bernoulli_distribution random_distribution(p);
+  for (int i = 0; i < n; ++i) {
+    r[i] = random_distribution(*caffe_rng());
+  }
+#endif
 }
 
 template
@@ -311,12 +549,19 @@ void caffe_rng_bernoulli(const int n, const Dtype p, unsigned int* r) {
   CHECK(r);
   CHECK_GE(p, 0);
   CHECK_LE(p, 1);
+#ifdef USE_BOOST
   boost::bernoulli_distribution<Dtype> random_distribution(p);
   boost::variate_generator<caffe::rng_t*, boost::bernoulli_distribution<Dtype> >
       variate_generator(caffe_rng(), random_distribution);
   for (int i = 0; i < n; ++i) {
     r[i] = static_cast<unsigned int>(variate_generator());
   }
+#else
+  std::bernoulli_distribution random_distribution(p);
+  for (int i = 0; i < n; ++i) {
+    r[i] = static_cast<unsigned int>(random_distribution(*caffe_rng()));
+  }
+#endif
 }
 
 template
@@ -347,28 +592,6 @@ float caffe_cpu_dot<float>(const int n, const float* x, const float* y);
 
 template
 double caffe_cpu_dot<double>(const int n, const double* x, const double* y);
-
-template <>
-int caffe_cpu_hamming_distance<float>(const int n, const float* x,
-                                  const float* y) {
-  int dist = 0;
-  for (int i = 0; i < n; ++i) {
-    dist += __builtin_popcount(static_cast<uint32_t>(x[i]) ^
-                               static_cast<uint32_t>(y[i]));
-  }
-  return dist;
-}
-
-template <>
-int caffe_cpu_hamming_distance<double>(const int n, const double* x,
-                                   const double* y) {
-  int dist = 0;
-  for (int i = 0; i < n; ++i) {
-    dist += __builtin_popcountl(static_cast<uint64_t>(x[i]) ^
-                                static_cast<uint64_t>(y[i]));
-  }
-  return dist;
-}
 
 template <>
 float caffe_cpu_asum<float>(const int n, const float* x) {

@@ -64,7 +64,11 @@ void ReductionLayer<Dtype>::Forward_cpu(
       break;
     default:
       LOG(FATAL) << "Unknown reduction op: "
+#ifdef USE_PROTOBUF_FULL
           << ReductionParameter_ReductionOp_Name(op_);
+#else
+          << op_;
+#endif
     }
     bottom_data += dim_;
     ++top_data;
@@ -94,7 +98,11 @@ void ReductionLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     break;
   default:
     LOG(FATAL) << "Unknown reduction op: "
-        << ReductionParameter_ReductionOp_Name(op_);
+#ifdef USE_PROTOBUF_FULL
+          << ReductionParameter_ReductionOp_Name(op_);
+#else
+          << op_;
+#endif
   }
   const Dtype* top_diff = top[0]->cpu_diff();
   Dtype* bottom_diff = bottom[0]->mutable_cpu_diff();
@@ -114,7 +122,11 @@ void ReductionLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       break;
     default:
       LOG(FATAL) << "Unknown reduction op: "
+#ifdef USE_PROTOBUF_FULL
           << ReductionParameter_ReductionOp_Name(op_);
+#else
+          << op_;
+#endif
     }
     bottom_data += dim_;
     bottom_diff += dim_;
