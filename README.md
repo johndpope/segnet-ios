@@ -1,5 +1,9 @@
 # Caffe SegNet iOS
 
+This project was a small test to see if SegNet is able to run on an iPhone. It does work, but the inference takes way too much time and memory. I managed it to run on an iPhone X. The inference needs approximility 4GB of memory.
+
+The repo here is just for anybody who want to do futher tests.
+
 The build system of this repo is based on the project [caffe-mobile](https://github.com/solrex/caffe-mobile)
 of @solrex.
 
